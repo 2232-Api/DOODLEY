@@ -15,7 +15,7 @@ reference on the left, then make a timed dithered pixel sketch on the right.
 - Timed sprints, reference queues, pause, skip, and automatic progression
 - Undo, redo, PNG export, and full-session ZIP export
 - Device-local drawing autosave
-- Responsive handheld-console-inspired interface
+- Responsive flat pixel-workstation interface with custom 9 × 9 tool icons
 
 ## Development
 

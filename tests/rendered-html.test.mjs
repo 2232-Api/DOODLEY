@@ -52,5 +52,7 @@ test("the drawing engine is an integer pixel and dither implementation", async (
   assert.match(source, /type="range"/);
   assert.match(source, /const MAX_BRUSH_SIZE = 20/);
   assert.match(source, /centerShift = brushSize % 2 === 0 \? 0\.5 : 0/);
+  assert.match(source, /const PIXEL_ICONS/);
+  assert.match(source, /className="pixel-tool-icon"/);
   assert.doesNotMatch(source, /lineTo\(|stroke\(\)/);
 });

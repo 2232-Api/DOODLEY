@@ -104,13 +104,71 @@ const DEFAULT_REFERENCE: ReferenceImage = {
   pageUrl: "https://www.pexels.com/photo/man-jumping-on-skateboard-at-a-skate-park-12343312/",
 };
 
-const TOOL_ITEMS: Array<{ id: Tool; icon: string; label: string; shortcut: string }> = [
-  { id: "pen", icon: "✎", label: "Pen", shortcut: "B" },
-  { id: "eraser", icon: "▱", label: "Eraser", shortcut: "E" },
-  { id: "text", icon: "T", label: "Text", shortcut: "T" },
-  { id: "shape", icon: "□", label: "Shape", shortcut: "R" },
-  { id: "picker", icon: "◉", label: "Pick", shortcut: "I" },
+const TOOL_ITEMS: Array<{ id: Tool; label: string; shortcut: string }> = [
+  { id: "pen", label: "Pen", shortcut: "B" },
+  { id: "eraser", label: "Eraser", shortcut: "E" },
+  { id: "text", label: "Text", shortcut: "T" },
+  { id: "shape", label: "Shape", shortcut: "R" },
+  { id: "picker", label: "Pick", shortcut: "I" },
 ];
+
+const PIXEL_ICONS: Record<Tool, string[]> = {
+  pen: [
+    "000000110",
+    "000001111",
+    "000011110",
+    "000111100",
+    "001111000",
+    "011110000",
+    "111100000",
+    "111000000",
+    "010000000",
+  ],
+  eraser: [
+    "000001100",
+    "000011110",
+    "000111110",
+    "001111100",
+    "011111000",
+    "111110000",
+    "011100000",
+    "001100000",
+    "000000000",
+  ],
+  text: [
+    "111111111",
+    "101111101",
+    "000111000",
+    "000111000",
+    "000111000",
+    "000111000",
+    "000111000",
+    "001111100",
+    "011111110",
+  ],
+  shape: [
+    "111111111",
+    "100000001",
+    "100000001",
+    "100000001",
+    "100000001",
+    "100000001",
+    "100000001",
+    "100000001",
+    "111111111",
+  ],
+  picker: [
+    "001111100",
+    "011000110",
+    "110111011",
+    "101000101",
+    "101010101",
+    "101000101",
+    "110111011",
+    "011000110",
+    "001111100",
+  ],
+};
 
 const PEN_MODES: Array<{ id: PenMode; label: string; description: string }> = [
   { id: "solid", label: "Solid pixel", description: "Dense, hard-edged ink" },
@@ -147,6 +205,16 @@ function downloadBlob(blob: Blob, name: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function PixelToolIcon({ tool }: { tool: Tool }) {
+  return (
+    <span className="pixel-tool-icon" aria-hidden="true">
+      {PIXEL_ICONS[tool].join("").split("").map((cell, index) => (
+        <span className={cell === "1" ? "is-filled" : ""} key={index} />
+      ))}
+    </span>
+  );
 }
 
 export default function DoodleyStudio() {
@@ -772,7 +840,7 @@ export default function DoodleyStudio() {
                 disabled={activeIndex === 0}
                 aria-label="Previous reference"
               >
-                ◀
+                &lt;
               </button>
               <div className="reference-copy">
                 <strong>{activeReference.title}</strong>
@@ -791,7 +859,7 @@ export default function DoodleyStudio() {
                 disabled={activeIndex === references.length - 1}
                 aria-label="Next reference"
               >
-                ▶
+                &gt;
               </button>
             </div>
 
@@ -811,10 +879,10 @@ export default function DoodleyStudio() {
           <div className="reference-controls">
             <label className="pixel-button upload-button">
               <input type="file" accept="image/*" multiple onChange={(event) => handleFiles(event.target.files)} />
-              <span aria-hidden="true">⇧</span> UPLOAD
+              <span aria-hidden="true">[+]</span> UPLOAD
             </label>
             <form className="search-form" onSubmit={searchReferences}>
-              <span aria-hidden="true">⌕</span>
+              <span aria-hidden="true">[?]</span>
               <input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
@@ -826,7 +894,7 @@ export default function DoodleyStudio() {
               </button>
             </form>
             <button type="button" className="pixel-button square-button" onClick={shuffleReferences} aria-label="Shuffle references">
-              ⤨
+              MIX
             </button>
 
             {showSearchResults && (
@@ -866,7 +934,7 @@ export default function DoodleyStudio() {
                 aria-controls={item.id === "pen" ? "pen-options" : undefined}
                 title={`${item.label} (${item.shortcut})`}
               >
-                <span className="tool-icon" aria-hidden="true">{item.icon}</span>
+                <PixelToolIcon tool={item.id} />
                 <span>{item.label}</span>
                 <kbd>{item.shortcut}</kbd>
                 {item.id === "pen" && <small className="tool-mode-label">{penMode === "duotone" ? "DUO" : penMode.toUpperCase()}</small>}
@@ -1016,10 +1084,10 @@ export default function DoodleyStudio() {
             <div className="control-deck">
               <div className="history-controls">
                 <button type="button" className="pixel-button" onClick={undo} disabled={undoRef.current.length === 0} aria-label="Undo">
-                  ↶ <span>UNDO</span>
+                  <b aria-hidden="true">&lt;</b> <span>UNDO</span>
                 </button>
                 <button type="button" className="pixel-button" onClick={redo} disabled={redoRef.current.length === 0} aria-label="Redo">
-                  ↷ <span>REDO</span>
+                  <b aria-hidden="true">&gt;</b> <span>REDO</span>
                 </button>
                 <span className="history-tick" aria-hidden="true">{historyTick > -1 ? "" : ""}</span>
               </div>
@@ -1113,11 +1181,11 @@ export default function DoodleyStudio() {
                 </select>
               </label>
               <button type="button" className="pixel-button clear-button" onClick={clearDrawing}>CLEAR</button>
-              <button type="button" className="pixel-button export-button" onClick={downloadCurrent}>PNG ↓</button>
+              <button type="button" className="pixel-button export-button" onClick={downloadCurrent}>PNG [V]</button>
               <button type="button" className={`pixel-button timer-button ${isRunning ? "is-running" : ""}`} onClick={toggleTimer}>
-                {isRunning ? "Ⅱ  PAUSE" : secondsLeft === duration ? "▶  START" : "▶  RESUME"}
+                {isRunning ? "[||] PAUSE" : secondsLeft === duration ? "[>] START" : "[>] RESUME"}
               </button>
-              <button type="button" className="pixel-button skip-button" onClick={advanceReference}>SKIP ▶</button>
+              <button type="button" className="pixel-button skip-button" onClick={advanceReference}>SKIP [&gt;]</button>
             </div>
           </div>
         </article>
@@ -1126,7 +1194,7 @@ export default function DoodleyStudio() {
       <footer className="app-footer">
         <span><i className="autosave-dot" /> Saved on this device</span>
         <span>{completedCount} finished · Space starts or pauses · ⌘Z undoes</span>
-        <button type="button" onClick={downloadSession}>DOWNLOAD SESSION ZIP ↓</button>
+        <button type="button" onClick={downloadSession}>DOWNLOAD SESSION ZIP [V]</button>
       </footer>
 
       {showFinish && (
@@ -1141,7 +1209,7 @@ export default function DoodleyStudio() {
               <div><strong>{formatTime(duration)}</strong><span>each</span></div>
               <div><strong>{completedCount || 1}</strong><span>drawings</span></div>
             </div>
-            <button type="button" className="pixel-button timer-button" onClick={downloadSession}>DOWNLOAD ALL ↓</button>
+            <button type="button" className="pixel-button timer-button" onClick={downloadSession}>DOWNLOAD ALL [V]</button>
             <button type="button" className="text-button" onClick={() => setShowFinish(false)}>Back to studio</button>
           </div>
         </div>
