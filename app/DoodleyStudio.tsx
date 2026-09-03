@@ -1,0 +1,887 @@
+"use client";
+
+import {
+  FormEvent,
+  PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import JSZip from "jszip";
+
+const CANVAS_WIDTH = 256;
+const CANVAS_HEIGHT = 192;
+const PAPER = "#fffdf4";
+const BAYER_4 = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+] as const;
+
+const BITMAP_FONT: Record<string, string[]> = {
+  A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
+  B: ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
+  C: ["01111", "10000", "10000", "10000", "10000", "10000", "01111"],
+  D: ["11110", "10001", "10001", "10001", "10001", "10001", "11110"],
+  E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
+  F: ["11111", "10000", "10000", "11110", "10000", "10000", "10000"],
+  G: ["01111", "10000", "10000", "10111", "10001", "10001", "01111"],
+  H: ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
+  I: ["11111", "00100", "00100", "00100", "00100", "00100", "11111"],
+  J: ["00111", "00010", "00010", "00010", "10010", "10010", "01100"],
+  K: ["10001", "10010", "10100", "11000", "10100", "10010", "10001"],
+  L: ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
+  M: ["10001", "11011", "10101", "10101", "10001", "10001", "10001"],
+  N: ["10001", "11001", "10101", "10011", "10001", "10001", "10001"],
+  O: ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
+  P: ["11110", "10001", "10001", "11110", "10000", "10000", "10000"],
+  Q: ["01110", "10001", "10001", "10001", "10101", "10010", "01101"],
+  R: ["11110", "10001", "10001", "11110", "10100", "10010", "10001"],
+  S: ["01111", "10000", "10000", "01110", "00001", "00001", "11110"],
+  T: ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
+  U: ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
+  V: ["10001", "10001", "10001", "10001", "10001", "01010", "00100"],
+  W: ["10001", "10001", "10001", "10101", "10101", "10101", "01010"],
+  X: ["10001", "10001", "01010", "00100", "01010", "10001", "10001"],
+  Y: ["10001", "10001", "01010", "00100", "00100", "00100", "00100"],
+  Z: ["11111", "00001", "00010", "00100", "01000", "10000", "11111"],
+  "0": ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
+  "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
+  "2": ["01110", "10001", "00001", "00010", "00100", "01000", "11111"],
+  "3": ["11110", "00001", "00001", "01110", "00001", "00001", "11110"],
+  "4": ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
+  "5": ["11111", "10000", "10000", "11110", "00001", "00001", "11110"],
+  "6": ["01110", "10000", "10000", "11110", "10001", "10001", "01110"],
+  "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
+  "8": ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
+  "9": ["01110", "10001", "10001", "01111", "00001", "00001", "01110"],
+  "!": ["00100", "00100", "00100", "00100", "00100", "00000", "00100"],
+  "?": ["01110", "10001", "00001", "00010", "00100", "00000", "00100"],
+  ".": ["00000", "00000", "00000", "00000", "00000", "00110", "00110"],
+  "-": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
+  " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
+};
+
+type Tool = "pen" | "eraser" | "text" | "shape" | "picker";
+
+type ReferenceImage = {
+  id: string;
+  url: string;
+  title: string;
+  author: string;
+  source: string;
+  pageUrl?: string;
+};
+
+type WikimediaPage = {
+  pageid: number;
+  title: string;
+  fullurl?: string;
+  imageinfo?: Array<{
+    url: string;
+    thumburl?: string;
+    mime?: string;
+    extmetadata?: {
+      Artist?: { value?: string };
+      LicenseShortName?: { value?: string };
+    };
+  }>;
+};
+
+const DEFAULT_REFERENCE: ReferenceImage = {
+  id: "skateboard-reference",
+  url: "/skateboard-reference.jpg",
+  title: "Skateboard jump",
+  author: "Jimmy Boos",
+  source: "Pexels",
+  pageUrl: "https://www.pexels.com/photo/man-jumping-on-skateboard-at-a-skate-park-12343312/",
+};
+
+const TOOL_ITEMS: Array<{ id: Tool; icon: string; label: string; shortcut: string }> = [
+  { id: "pen", icon: "✎", label: "Pen", shortcut: "B" },
+  { id: "eraser", icon: "▱", label: "Eraser", shortcut: "E" },
+  { id: "text", icon: "T", label: "Text", shortcut: "T" },
+  { id: "shape", icon: "□", label: "Shape", shortcut: "R" },
+  { id: "picker", icon: "◉", label: "Pick", shortcut: "I" },
+];
+
+const PALETTE = ["#214fb3", "#e05a3f", "#191a22", "#4f8f4c", "#8a4da3", "#f0aa32"];
+
+function stripHtml(value = "") {
+  return value.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ").trim();
+}
+
+function formatTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function safeFileName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 42) || "sketch";
+}
+
+function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export default function DoodleyStudio() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const shapeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const shapeBaseRef = useRef<ImageData | null>(null);
+  const undoRef = useRef<ImageData[]>([]);
+  const redoRef = useRef<ImageData[]>([]);
+  const deadlineRef = useRef<number | null>(null);
+  const advancingRef = useRef(false);
+
+  const [tool, setTool] = useState<Tool>("pen");
+  const [brushSize, setBrushSize] = useState(3);
+  const [density, setDensity] = useState(0.5);
+  const [color, setColor] = useState(PALETTE[0]);
+  const [textValue, setTextValue] = useState("DOODLE");
+  const [references, setReferences] = useState<ReferenceImage[]>([DEFAULT_REFERENCE]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [drawings, setDrawings] = useState<Record<string, string>>({});
+  const [historyTick, setHistoryTick] = useState(0);
+  const [duration, setDuration] = useState(120);
+  const [secondsLeft, setSecondsLeft] = useState(120);
+  const [isRunning, setIsRunning] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("sports");
+  const [searchResults, setSearchResults] = useState<ReferenceImage[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchMessage, setSearchMessage] = useState("");
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [showFinish, setShowFinish] = useState(false);
+  const [hasDrawn, setHasDrawn] = useState(false);
+
+  const activeReference = references[activeIndex] ?? references[0];
+  const completedCount = Object.keys(drawings).filter((id) => drawings[id]).length;
+
+  const getContext = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (context) context.imageSmoothingEnabled = false;
+    return context;
+  }, []);
+
+  const clearCanvasPixels = useCallback(() => {
+    const context = getContext();
+    if (!context) return;
+    context.fillStyle = PAPER;
+    context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }, [getContext]);
+
+  const persistCurrentDrawing = useCallback(() => {
+    const canvas = canvasRef.current;
+    const reference = references[activeIndex];
+    if (!canvas || !reference) return "";
+    const dataUrl = canvas.toDataURL("image/png");
+    setDrawings((current) => ({ ...current, [reference.id]: dataUrl }));
+    return dataUrl;
+  }, [activeIndex, references]);
+
+  const restoreCanvas = useCallback(
+    (dataUrl?: string) => {
+      clearCanvasPixels();
+      if (!dataUrl) return;
+      const context = getContext();
+      if (!context) return;
+      const image = new Image();
+      image.onload = () => {
+        context.imageSmoothingEnabled = false;
+        context.drawImage(image, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      };
+      image.src = dataUrl;
+    },
+    [clearCanvasPixels, getContext],
+  );
+
+  useEffect(() => {
+    clearCanvasPixels();
+    try {
+      const saved = window.localStorage.getItem("doodley-drawings-v1");
+      if (saved) {
+        const parsed = JSON.parse(saved) as Record<string, string>;
+        setDrawings(parsed);
+        restoreCanvas(parsed[DEFAULT_REFERENCE.id]);
+        setHasDrawn(Boolean(parsed[DEFAULT_REFERENCE.id]));
+      }
+    } catch {
+      // A private browser window may reject storage. Drawing still works.
+    }
+  }, [clearCanvasPixels, restoreCanvas]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("doodley-drawings-v1", JSON.stringify(drawings));
+    } catch {
+      // Ignore storage quota errors; export remains available.
+    }
+  }, [drawings]);
+
+  const checkpoint = useCallback(() => {
+    const context = getContext();
+    if (!context) return;
+    undoRef.current.push(context.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT));
+    if (undoRef.current.length > 30) undoRef.current.shift();
+    redoRef.current = [];
+    setHistoryTick((value) => value + 1);
+  }, [getContext]);
+
+  const mapPointer = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const bounds = canvas.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(CANVAS_WIDTH - 1, Math.floor(((event.clientX - bounds.left) / bounds.width) * CANVAS_WIDTH))),
+      y: Math.max(0, Math.min(CANVAS_HEIGHT - 1, Math.floor(((event.clientY - bounds.top) / bounds.height) * CANVAS_HEIGHT))),
+    };
+  }, []);
+
+  const setDitheredPixel = useCallback(
+    (context: CanvasRenderingContext2D, x: number, y: number, nextColor: string, forceDensity = density) => {
+      if (x < 0 || y < 0 || x >= CANVAS_WIDTH || y >= CANVAS_HEIGHT) return;
+      if (BAYER_4[y & 3][x & 3] < Math.round(forceDensity * 16)) {
+        context.fillStyle = nextColor;
+        context.fillRect(x, y, 1, 1);
+      }
+    },
+    [density],
+  );
+
+  const stamp = useCallback(
+    (context: CanvasRenderingContext2D, x: number, y: number, nextColor: string) => {
+      const radius = Math.floor(brushSize / 2);
+      for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+        for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+          if (offsetX * offsetX + offsetY * offsetY <= radius * radius + 1) {
+            setDitheredPixel(context, x + offsetX, y + offsetY, nextColor);
+          }
+        }
+      }
+    },
+    [brushSize, setDitheredPixel],
+  );
+
+  const drawDitheredLine = useCallback(
+    (context: CanvasRenderingContext2D, start: { x: number; y: number }, end: { x: number; y: number }, nextColor: string) => {
+      const distance = Math.max(Math.abs(end.x - start.x), Math.abs(end.y - start.y));
+      const steps = Math.max(1, distance);
+      for (let step = 0; step <= steps; step += 1) {
+        const x = Math.round(start.x + ((end.x - start.x) * step) / steps);
+        const y = Math.round(start.y + ((end.y - start.y) * step) / steps);
+        stamp(context, x, y, nextColor);
+      }
+    },
+    [stamp],
+  );
+
+  const drawRectangle = useCallback(
+    (context: CanvasRenderingContext2D, start: { x: number; y: number }, end: { x: number; y: number }) => {
+      const topLeft = { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y) };
+      const topRight = { x: Math.max(start.x, end.x), y: Math.min(start.y, end.y) };
+      const bottomRight = { x: Math.max(start.x, end.x), y: Math.max(start.y, end.y) };
+      const bottomLeft = { x: Math.min(start.x, end.x), y: Math.max(start.y, end.y) };
+      drawDitheredLine(context, topLeft, topRight, color);
+      drawDitheredLine(context, topRight, bottomRight, color);
+      drawDitheredLine(context, bottomRight, bottomLeft, color);
+      drawDitheredLine(context, bottomLeft, topLeft, color);
+    },
+    [color, drawDitheredLine],
+  );
+
+  const drawBitmapText = useCallback(
+    (context: CanvasRenderingContext2D, text: string, startX: number, startY: number) => {
+      const scale = 2;
+      let cursorX = startX;
+      for (const rawCharacter of text.toUpperCase().slice(0, 18)) {
+        const glyph = BITMAP_FONT[rawCharacter] ?? BITMAP_FONT["?"];
+        glyph.forEach((row, rowIndex) => {
+          row.split("").forEach((pixel, columnIndex) => {
+            if (pixel !== "1") return;
+            for (let y = 0; y < scale; y += 1) {
+              for (let x = 0; x < scale; x += 1) {
+                setDitheredPixel(context, cursorX + columnIndex * scale + x, startY + rowIndex * scale + y, color);
+              }
+            }
+          });
+        });
+        cursorX += 6 * scale;
+        if (cursorX > CANVAS_WIDTH - 10) break;
+      }
+    },
+    [color, setDitheredPixel],
+  );
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const context = getContext();
+    if (!context) return;
+    const point = mapPointer(event);
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    if (tool === "picker") {
+      const pixel = context.getImageData(point.x, point.y, 1, 1).data;
+      setColor(`#${[pixel[0], pixel[1], pixel[2]].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`);
+      return;
+    }
+
+    checkpoint();
+    setHasDrawn(true);
+
+    if (tool === "text") {
+      drawBitmapText(context, textValue || "TEXT", point.x, point.y);
+      persistCurrentDrawing();
+      return;
+    }
+
+    isDrawingRef.current = true;
+    lastPointRef.current = point;
+
+    if (tool === "shape") {
+      shapeStartRef.current = point;
+      shapeBaseRef.current = context.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      return;
+    }
+
+    stamp(context, point.x, point.y, tool === "eraser" ? PAPER : color);
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) return;
+    const context = getContext();
+    const point = mapPointer(event);
+    if (!context || !lastPointRef.current) return;
+
+    if (tool === "shape" && shapeStartRef.current && shapeBaseRef.current) {
+      context.putImageData(shapeBaseRef.current, 0, 0);
+      drawRectangle(context, shapeStartRef.current, point);
+    } else {
+      drawDitheredLine(context, lastPointRef.current, point, tool === "eraser" ? PAPER : color);
+    }
+    lastPointRef.current = point;
+  };
+
+  const finishPointer = () => {
+    if (!isDrawingRef.current) return;
+    isDrawingRef.current = false;
+    lastPointRef.current = null;
+    shapeStartRef.current = null;
+    shapeBaseRef.current = null;
+    persistCurrentDrawing();
+  };
+
+  const undo = useCallback(() => {
+    const context = getContext();
+    const previous = undoRef.current.pop();
+    if (!context || !previous) return;
+    redoRef.current.push(context.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT));
+    context.putImageData(previous, 0, 0);
+    setHistoryTick((value) => value + 1);
+    persistCurrentDrawing();
+  }, [getContext, persistCurrentDrawing]);
+
+  const redo = useCallback(() => {
+    const context = getContext();
+    const next = redoRef.current.pop();
+    if (!context || !next) return;
+    undoRef.current.push(context.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT));
+    context.putImageData(next, 0, 0);
+    setHistoryTick((value) => value + 1);
+    persistCurrentDrawing();
+  }, [getContext, persistCurrentDrawing]);
+
+  const clearDrawing = () => {
+    checkpoint();
+    clearCanvasPixels();
+    persistCurrentDrawing();
+    setHasDrawn(false);
+  };
+
+  const switchReference = useCallback(
+    (nextIndex: number) => {
+      if (nextIndex < 0 || nextIndex >= references.length || nextIndex === activeIndex) return;
+      persistCurrentDrawing();
+      setIsRunning(false);
+      deadlineRef.current = null;
+      setActiveIndex(nextIndex);
+      setSecondsLeft(duration);
+      undoRef.current = [];
+      redoRef.current = [];
+      setHistoryTick((value) => value + 1);
+      const nextReference = references[nextIndex];
+      restoreCanvas(drawings[nextReference.id]);
+      setHasDrawn(Boolean(drawings[nextReference.id]));
+    },
+    [activeIndex, drawings, duration, persistCurrentDrawing, references, restoreCanvas],
+  );
+
+  const advanceReference = useCallback(() => {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
+    persistCurrentDrawing();
+    setIsRunning(false);
+    deadlineRef.current = null;
+    if (activeIndex < references.length - 1) {
+      const nextIndex = activeIndex + 1;
+      setActiveIndex(nextIndex);
+      setSecondsLeft(duration);
+      undoRef.current = [];
+      redoRef.current = [];
+      setHistoryTick((value) => value + 1);
+      const nextReference = references[nextIndex];
+      restoreCanvas(drawings[nextReference.id]);
+      setHasDrawn(Boolean(drawings[nextReference.id]));
+    } else {
+      setShowFinish(true);
+    }
+    window.setTimeout(() => {
+      advancingRef.current = false;
+    }, 250);
+  }, [activeIndex, drawings, duration, persistCurrentDrawing, references, restoreCanvas]);
+
+  useEffect(() => {
+    if (!isRunning) return;
+    if (!deadlineRef.current) deadlineRef.current = Date.now() + secondsLeft * 1000;
+    const interval = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil(((deadlineRef.current ?? Date.now()) - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      if (remaining <= 0) {
+        window.clearInterval(interval);
+        advanceReference();
+      }
+    }, 200);
+    return () => window.clearInterval(interval);
+  }, [advanceReference, isRunning, secondsLeft]);
+
+  const toggleTimer = useCallback(() => {
+    if (isRunning) {
+      const remaining = Math.max(0, Math.ceil(((deadlineRef.current ?? Date.now()) - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      deadlineRef.current = null;
+      setIsRunning(false);
+    } else {
+      deadlineRef.current = Date.now() + secondsLeft * 1000;
+      setIsRunning(true);
+    }
+  }, [isRunning, secondsLeft]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select")) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      const shortcutMap: Record<string, Tool> = { b: "pen", e: "eraser", t: "text", r: "shape", i: "picker" };
+      if (shortcutMap[event.key.toLowerCase()]) setTool(shortcutMap[event.key.toLowerCase()]);
+      if (event.code === "Space") {
+        event.preventDefault();
+        toggleTimer();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [redo, toggleTimer, undo]);
+
+  const handleDurationChange = (nextDuration: number) => {
+    setDuration(nextDuration);
+    setSecondsLeft(nextDuration);
+    setIsRunning(false);
+    deadlineRef.current = null;
+  };
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+    const uploaded = Array.from(files)
+      .filter((file) => file.type.startsWith("image/"))
+      .slice(0, 20)
+      .map((file, index) => ({
+        id: `upload-${Date.now()}-${index}`,
+        url: URL.createObjectURL(file),
+        title: file.name.replace(/\.[^.]+$/, ""),
+        author: "Your upload",
+        source: "Local image",
+      }));
+    if (uploaded.length) setReferences((current) => [...current, ...uploaded]);
+  };
+
+  const searchReferences = async (event: FormEvent) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+    setIsSearching(true);
+    setShowSearchResults(true);
+    setSearchMessage("");
+    try {
+      const params = new URLSearchParams({
+        action: "query",
+        format: "json",
+        origin: "*",
+        generator: "search",
+        gsrsearch: `${query} filetype:bitmap`,
+        gsrnamespace: "6",
+        gsrlimit: "8",
+        prop: "imageinfo|info",
+        inprop: "url",
+        iiprop: "url|mime|extmetadata",
+        iiurlwidth: "900",
+        iiextmetadatafilter: "Artist|LicenseShortName",
+      });
+      const response = await fetch(`https://commons.wikimedia.org/w/api.php?${params.toString()}`);
+      if (!response.ok) throw new Error("Search unavailable");
+      const data = (await response.json()) as { query?: { pages?: Record<string, WikimediaPage> } };
+      const results = Object.values(data.query?.pages ?? {})
+        .map((page): ReferenceImage | null => {
+          const info = page.imageinfo?.[0];
+          if (!info || !info.mime?.startsWith("image/") || info.mime === "image/svg+xml") return null;
+          const author = stripHtml(info.extmetadata?.Artist?.value) || "Wikimedia contributor";
+          const license = stripHtml(info.extmetadata?.LicenseShortName?.value);
+          return {
+            id: `commons-${page.pageid}`,
+            url: info.thumburl ?? info.url,
+            title: page.title.replace(/^File:/, "").replace(/\.[^.]+$/, ""),
+            author: license ? `${author} · ${license}` : author,
+            source: "Wikimedia Commons",
+            pageUrl: page.fullurl,
+          };
+        })
+        .filter((item): item is ReferenceImage => Boolean(item));
+      setSearchResults(results);
+      setSearchMessage(results.length ? "" : "No usable images found. Try another prompt.");
+    } catch {
+      setSearchResults([]);
+      setSearchMessage("Search is taking a break. You can still upload images.");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const addSearchResult = (reference: ReferenceImage) => {
+    setReferences((current) => (current.some((item) => item.id === reference.id) ? current : [...current, reference]));
+    setShowSearchResults(false);
+  };
+
+  const shuffleReferences = () => {
+    persistCurrentDrawing();
+    const shuffled = [...references].sort(() => Math.random() - 0.5);
+    setReferences(shuffled);
+    setActiveIndex(0);
+    setSecondsLeft(duration);
+    setIsRunning(false);
+    restoreCanvas(drawings[shuffled[0]?.id]);
+    setHasDrawn(Boolean(drawings[shuffled[0]?.id]));
+  };
+
+  const downloadCurrent = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !activeReference) return;
+    canvas.toBlob((blob) => {
+      if (blob) downloadBlob(blob, `${String(activeIndex + 1).padStart(2, "0")}-${safeFileName(activeReference.title)}.png`);
+    }, "image/png");
+  };
+
+  const downloadSession = async () => {
+    const currentData = persistCurrentDrawing();
+    const allDrawings = { ...drawings, [activeReference.id]: currentData };
+    const zip = new JSZip();
+    let added = 0;
+    references.forEach((reference, index) => {
+      const dataUrl = allDrawings[reference.id];
+      if (!dataUrl) return;
+      zip.file(`${String(index + 1).padStart(2, "0")}-${safeFileName(reference.title)}.png`, dataUrl.split(",")[1], { base64: true });
+      added += 1;
+    });
+    zip.file(
+      "session.txt",
+      `DOODLEY DITHER SPRINT\n${new Date().toLocaleString()}\n${added} drawing${added === 1 ? "" : "s"}\n${duration} seconds per reference\n`,
+    );
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadBlob(blob, `doodley-session-${new Date().toISOString().slice(0, 10)}.zip`);
+  };
+
+  return (
+    <main className="doodley-app">
+      <header className="brand-console" aria-label="Doodley drawing studio">
+        <span className="speaker-grid" aria-hidden="true" />
+        <div className="brand-lockup">
+          <span className="brand-word">DOODLEY</span>
+          <span className="brand-subtitle">DITHER SPRINT STUDIO</span>
+        </div>
+        <span className="status-led" title="Autosave active" />
+        <span className="speaker-grid" aria-hidden="true" />
+      </header>
+
+      <section className="studio-grid">
+        <article className="hardware-panel reference-panel" aria-label="Reference screen">
+          <div className="screen-bezel">
+            <div className="reference-screen">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={activeReference.url} alt={activeReference.title} />
+              <div className="reference-overlay">
+                <span>REFERENCE</span>
+                <span>{String(activeIndex + 1).padStart(2, "0")}</span>
+              </div>
+            </div>
+
+            <div className="reference-meta">
+              <button
+                type="button"
+                className="pixel-button square-button"
+                onClick={() => switchReference(activeIndex - 1)}
+                disabled={activeIndex === 0}
+                aria-label="Previous reference"
+              >
+                ◀
+              </button>
+              <div className="reference-copy">
+                <strong>{activeReference.title}</strong>
+                {activeReference.pageUrl ? (
+                  <a href={activeReference.pageUrl} target="_blank" rel="noreferrer">
+                    {activeReference.source} · {activeReference.author}
+                  </a>
+                ) : (
+                  <span>{activeReference.author}</span>
+                )}
+              </div>
+              <button
+                type="button"
+                className="pixel-button square-button"
+                onClick={() => switchReference(activeIndex + 1)}
+                disabled={activeIndex === references.length - 1}
+                aria-label="Next reference"
+              >
+                ▶
+              </button>
+            </div>
+
+            <div className="session-progress" aria-label={`${activeIndex + 1} of ${references.length} references`}>
+              {references.slice(0, 12).map((reference, index) => (
+                <button
+                  type="button"
+                  key={reference.id}
+                  className={`progress-pip ${index === activeIndex ? "is-current" : ""} ${drawings[reference.id] ? "is-done" : ""}`}
+                  onClick={() => switchReference(index)}
+                  aria-label={`Open reference ${index + 1}`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="reference-controls">
+            <label className="pixel-button upload-button">
+              <input type="file" accept="image/*" multiple onChange={(event) => handleFiles(event.target.files)} />
+              <span aria-hidden="true">⇧</span> UPLOAD
+            </label>
+            <form className="search-form" onSubmit={searchReferences}>
+              <span aria-hidden="true">⌕</span>
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                aria-label="Search reference images"
+                placeholder="sports, poses…"
+              />
+              <button type="submit" disabled={isSearching} aria-label="Search">
+                {isSearching ? "···" : "GO"}
+              </button>
+            </form>
+            <button type="button" className="pixel-button square-button" onClick={shuffleReferences} aria-label="Shuffle references">
+              ⤨
+            </button>
+
+            {showSearchResults && (
+              <div className="search-results" role="dialog" aria-label="Reference search results">
+                <div className="results-header">
+                  <strong>ADD A REFERENCE</strong>
+                  <button type="button" onClick={() => setShowSearchResults(false)} aria-label="Close search results">
+                    ×
+                  </button>
+                </div>
+                {searchMessage && <p>{searchMessage}</p>}
+                <div className="result-grid">
+                  {searchResults.map((result) => (
+                    <button type="button" key={result.id} onClick={() => addSearchResult(result)}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={result.url} alt={result.title} />
+                      <span>{result.title}</span>
+                    </button>
+                  ))}
+                </div>
+                <small>Images and licenses from Wikimedia Commons.</small>
+              </div>
+            )}
+          </div>
+        </article>
+
+        <article className="hardware-panel canvas-panel" aria-label="Dithered drawing screen">
+          <aside className="tool-rail" aria-label="Drawing tools">
+            {TOOL_ITEMS.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={`tool-button ${tool === item.id ? "is-active" : ""}`}
+                onClick={() => setTool(item.id)}
+                aria-pressed={tool === item.id}
+                title={`${item.label} (${item.shortcut})`}
+              >
+                <span className="tool-icon" aria-hidden="true">{item.icon}</span>
+                <span>{item.label}</span>
+                <kbd>{item.shortcut}</kbd>
+              </button>
+            ))}
+            <div className="rail-speaker" aria-hidden="true" />
+          </aside>
+
+          <div className="canvas-stage">
+            <div className="canvas-status-row">
+              <div>
+                <span className="eyebrow">PIXEL GRID</span>
+                <strong>{CANVAS_WIDTH} × {CANVAS_HEIGHT}</strong>
+              </div>
+              <div className="timer-readout" data-warning={secondsLeft <= 10}>
+                <span>TIME</span>
+                <strong>{formatTime(secondsLeft)}</strong>
+              </div>
+              <div className="session-counter">
+                <span>SPRINT</span>
+                <strong>{activeIndex + 1} / {references.length}</strong>
+              </div>
+            </div>
+
+            <div className="canvas-wrap">
+              <canvas
+                ref={canvasRef}
+                width={CANVAS_WIDTH}
+                height={CANVAS_HEIGHT}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={finishPointer}
+                onPointerCancel={finishPointer}
+                onPointerLeave={finishPointer}
+                aria-label="Dithered pixel drawing canvas"
+              />
+              {!hasDrawn && (
+                <div className="canvas-hint" aria-hidden="true">
+                  <span>DRAW HERE</span>
+                  <small>Every mark snaps to the dither grid.</small>
+                </div>
+              )}
+            </div>
+
+            <div className="control-deck">
+              <div className="history-controls">
+                <button type="button" className="pixel-button" onClick={undo} disabled={undoRef.current.length === 0} aria-label="Undo">
+                  ↶ <span>UNDO</span>
+                </button>
+                <button type="button" className="pixel-button" onClick={redo} disabled={redoRef.current.length === 0} aria-label="Redo">
+                  ↷ <span>REDO</span>
+                </button>
+                <span className="history-tick" aria-hidden="true">{historyTick > -1 ? "" : ""}</span>
+              </div>
+
+              <label className="compact-control">
+                <span>SIZE</span>
+                <select value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))}>
+                  <option value="1">1 PX</option>
+                  <option value="3">3 PX</option>
+                  <option value="5">5 PX</option>
+                  <option value="7">7 PX</option>
+                </select>
+              </label>
+
+              <label className="compact-control">
+                <span>DITHER</span>
+                <select value={density} onChange={(event) => setDensity(Number(event.target.value))}>
+                  <option value="0.25">25%</option>
+                  <option value="0.5">50%</option>
+                  <option value="0.75">75%</option>
+                </select>
+              </label>
+
+              <div className="palette-control" aria-label="Drawing colors">
+                {PALETTE.map((swatch) => (
+                  <button
+                    type="button"
+                    key={swatch}
+                    className={color === swatch ? "is-selected" : ""}
+                    style={{ backgroundColor: swatch }}
+                    onClick={() => setColor(swatch)}
+                    aria-label={`Select color ${swatch}`}
+                  />
+                ))}
+              </div>
+
+              {tool === "text" && (
+                <label className="text-stamp-control">
+                  <span>STAMP TEXT</span>
+                  <input value={textValue} maxLength={18} onChange={(event) => setTextValue(event.target.value)} />
+                </label>
+              )}
+            </div>
+
+            <div className="session-controls">
+              <label className="duration-control">
+                <span>SPRINT LENGTH</span>
+                <select value={duration} onChange={(event) => handleDurationChange(Number(event.target.value))}>
+                  <option value="30">00:30</option>
+                  <option value="60">01:00</option>
+                  <option value="120">02:00</option>
+                  <option value="300">05:00</option>
+                  <option value="600">10:00</option>
+                </select>
+              </label>
+              <button type="button" className="pixel-button clear-button" onClick={clearDrawing}>CLEAR</button>
+              <button type="button" className="pixel-button export-button" onClick={downloadCurrent}>PNG ↓</button>
+              <button type="button" className={`pixel-button timer-button ${isRunning ? "is-running" : ""}`} onClick={toggleTimer}>
+                {isRunning ? "Ⅱ  PAUSE" : secondsLeft === duration ? "▶  START" : "▶  RESUME"}
+              </button>
+              <button type="button" className="pixel-button skip-button" onClick={advanceReference}>SKIP ▶</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <footer className="app-footer">
+        <span><i className="autosave-dot" /> Saved on this device</span>
+        <span>{completedCount} finished · Space starts or pauses · ⌘Z undoes</span>
+        <button type="button" onClick={downloadSession}>DOWNLOAD SESSION ZIP ↓</button>
+      </footer>
+
+      {showFinish && (
+        <div className="finish-overlay" role="dialog" aria-modal="true" aria-labelledby="finish-title">
+          <div className="finish-card">
+            <span className="finish-stars" aria-hidden="true">✦ · ✦ · ✦</span>
+            <p className="eyebrow">SPRINT COMPLETE</p>
+            <h1 id="finish-title">NICE LINES!</h1>
+            <p>Your pixel studies are saved on this device and ready to export.</p>
+            <div className="finish-stats">
+              <div><strong>{references.length}</strong><span>references</span></div>
+              <div><strong>{formatTime(duration)}</strong><span>each</span></div>
+              <div><strong>{completedCount || 1}</strong><span>drawings</span></div>
+            </div>
+            <button type="button" className="pixel-button timer-button" onClick={downloadSession}>DOWNLOAD ALL ↓</button>
+            <button type="button" className="text-button" onClick={() => setShowFinish(false)}>Back to studio</button>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
