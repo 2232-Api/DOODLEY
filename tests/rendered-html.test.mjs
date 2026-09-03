@@ -45,5 +45,9 @@ test("the drawing engine is an integer pixel and dither implementation", async (
   assert.match(source, /const BAYER_4/);
   assert.match(source, /fillRect\(x, y, 1, 1\)/);
   assert.match(source, /BITMAP_FONT/);
+  assert.match(source, /type PenMode = "solid" \| "dither" \| "duotone"/);
+  assert.match(source, /style === "duotone"/);
+  assert.match(source, /usePrimary \? primaryColor : secondaryColor/);
+  assert.match(source, /style === "dither"/);
   assert.doesNotMatch(source, /lineTo\(|stroke\(\)/);
 });

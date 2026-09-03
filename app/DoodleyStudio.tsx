@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CSSProperties,
   FormEvent,
   PointerEvent as ReactPointerEvent,
   useCallback,
@@ -65,6 +66,8 @@ const BITMAP_FONT: Record<string, string[]> = {
 };
 
 type Tool = "pen" | "eraser" | "text" | "shape" | "picker";
+type PenMode = "solid" | "dither" | "duotone";
+type StampStyle = PenMode | "erase";
 
 type ReferenceImage = {
   id: string;
@@ -105,6 +108,12 @@ const TOOL_ITEMS: Array<{ id: Tool; icon: string; label: string; shortcut: strin
   { id: "text", icon: "T", label: "Text", shortcut: "T" },
   { id: "shape", icon: "□", label: "Shape", shortcut: "R" },
   { id: "picker", icon: "◉", label: "Pick", shortcut: "I" },
+];
+
+const PEN_MODES: Array<{ id: PenMode; label: string; description: string }> = [
+  { id: "solid", label: "Solid pixel", description: "Dense, hard-edged ink" },
+  { id: "dither", label: "Dither ink", description: "Screen tone with paper gaps" },
+  { id: "duotone", label: "Duotone", description: "Two-color woven texture" },
 ];
 
 const PALETTE = ["#214fb3", "#e05a3f", "#191a22", "#4f8f4c", "#8a4da3", "#f0aa32"];
@@ -150,9 +159,12 @@ export default function DoodleyStudio() {
   const advancingRef = useRef(false);
 
   const [tool, setTool] = useState<Tool>("pen");
+  const [penMode, setPenMode] = useState<PenMode>("solid");
+  const [showPenOptions, setShowPenOptions] = useState(false);
   const [brushSize, setBrushSize] = useState(3);
   const [density, setDensity] = useState(0.5);
   const [color, setColor] = useState(PALETTE[0]);
+  const [secondaryColor, setSecondaryColor] = useState(PALETTE[1]);
   const [textValue, setTextValue] = useState("DOODLE");
   const [references, setReferences] = useState<ReferenceImage[]>([DEFAULT_REFERENCE]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -171,6 +183,11 @@ export default function DoodleyStudio() {
 
   const activeReference = references[activeIndex] ?? references[0];
   const completedCount = Object.keys(drawings).filter((id) => drawings[id]).length;
+  const penModeLabel = PEN_MODES.find((mode) => mode.id === penMode)?.label ?? "Solid pixel";
+  const penPreviewStyle = {
+    "--pen-primary": color,
+    "--pen-secondary": secondaryColor,
+  } as CSSProperties;
 
   const getContext = useCallback(() => {
     const canvas = canvasRef.current;
@@ -222,6 +239,28 @@ export default function DoodleyStudio() {
         restoreCanvas(parsed[DEFAULT_REFERENCE.id]);
         setHasDrawn(Boolean(parsed[DEFAULT_REFERENCE.id]));
       }
+
+      const savedPen = window.localStorage.getItem("doodley-pen-v1");
+      if (savedPen) {
+        const parsedPen = JSON.parse(savedPen) as {
+          penMode?: PenMode;
+          color?: string;
+          secondaryColor?: string;
+          density?: number;
+          brushSize?: number;
+        };
+        if (PEN_MODES.some((mode) => mode.id === parsedPen.penMode)) {
+          setPenMode(parsedPen.penMode as PenMode);
+        }
+        if (parsedPen.color) setColor(parsedPen.color);
+        if (parsedPen.secondaryColor) setSecondaryColor(parsedPen.secondaryColor);
+        if ([0.25, 0.5, 0.75].includes(parsedPen.density ?? 0)) {
+          setDensity(parsedPen.density as number);
+        }
+        if ([1, 3, 5, 7].includes(parsedPen.brushSize ?? 0)) {
+          setBrushSize(parsedPen.brushSize as number);
+        }
+      }
     } catch {
       // A private browser window may reject storage. Drawing still works.
     }
@@ -234,6 +273,17 @@ export default function DoodleyStudio() {
       // Ignore storage quota errors; export remains available.
     }
   }, [drawings]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "doodley-pen-v1",
+        JSON.stringify({ penMode, color, secondaryColor, density, brushSize }),
+      );
+    } catch {
+      // Pen preferences are optional; drawing remains available without storage.
+    }
+  }, [brushSize, color, density, penMode, secondaryColor]);
 
   const checkpoint = useCallback(() => {
     const context = getContext();
@@ -265,28 +315,66 @@ export default function DoodleyStudio() {
     [density],
   );
 
+  const setStyledPixel = useCallback(
+    (
+      context: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      primaryColor: string,
+      style: StampStyle,
+    ) => {
+      if (x < 0 || y < 0 || x >= CANVAS_WIDTH || y >= CANVAS_HEIGHT) return;
+
+      if (style === "dither") {
+        setDitheredPixel(context, x, y, primaryColor);
+        return;
+      }
+
+      if (style === "duotone") {
+        const usePrimary = BAYER_4[y & 3][x & 3] < Math.round(density * 16);
+        context.fillStyle = usePrimary ? primaryColor : secondaryColor;
+      } else {
+        context.fillStyle = primaryColor;
+      }
+      context.fillRect(x, y, 1, 1);
+    },
+    [density, secondaryColor, setDitheredPixel],
+  );
+
   const stamp = useCallback(
-    (context: CanvasRenderingContext2D, x: number, y: number, nextColor: string) => {
+    (
+      context: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      nextColor: string,
+      style: StampStyle = "dither",
+    ) => {
       const radius = Math.floor(brushSize / 2);
       for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
         for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
           if (offsetX * offsetX + offsetY * offsetY <= radius * radius + 1) {
-            setDitheredPixel(context, x + offsetX, y + offsetY, nextColor);
+            setStyledPixel(context, x + offsetX, y + offsetY, nextColor, style);
           }
         }
       }
     },
-    [brushSize, setDitheredPixel],
+    [brushSize, setStyledPixel],
   );
 
-  const drawDitheredLine = useCallback(
-    (context: CanvasRenderingContext2D, start: { x: number; y: number }, end: { x: number; y: number }, nextColor: string) => {
+  const drawPixelLine = useCallback(
+    (
+      context: CanvasRenderingContext2D,
+      start: { x: number; y: number },
+      end: { x: number; y: number },
+      nextColor: string,
+      style: StampStyle = "dither",
+    ) => {
       const distance = Math.max(Math.abs(end.x - start.x), Math.abs(end.y - start.y));
       const steps = Math.max(1, distance);
       for (let step = 0; step <= steps; step += 1) {
         const x = Math.round(start.x + ((end.x - start.x) * step) / steps);
         const y = Math.round(start.y + ((end.y - start.y) * step) / steps);
-        stamp(context, x, y, nextColor);
+        stamp(context, x, y, nextColor, style);
       }
     },
     [stamp],
@@ -298,12 +386,12 @@ export default function DoodleyStudio() {
       const topRight = { x: Math.max(start.x, end.x), y: Math.min(start.y, end.y) };
       const bottomRight = { x: Math.max(start.x, end.x), y: Math.max(start.y, end.y) };
       const bottomLeft = { x: Math.min(start.x, end.x), y: Math.max(start.y, end.y) };
-      drawDitheredLine(context, topLeft, topRight, color);
-      drawDitheredLine(context, topRight, bottomRight, color);
-      drawDitheredLine(context, bottomRight, bottomLeft, color);
-      drawDitheredLine(context, bottomLeft, topLeft, color);
+      drawPixelLine(context, topLeft, topRight, color);
+      drawPixelLine(context, topRight, bottomRight, color);
+      drawPixelLine(context, bottomRight, bottomLeft, color);
+      drawPixelLine(context, bottomLeft, topLeft, color);
     },
-    [color, drawDitheredLine],
+    [color, drawPixelLine],
   );
 
   const drawBitmapText = useCallback(
@@ -359,7 +447,13 @@ export default function DoodleyStudio() {
       return;
     }
 
-    stamp(context, point.x, point.y, tool === "eraser" ? PAPER : color);
+    stamp(
+      context,
+      point.x,
+      point.y,
+      tool === "eraser" ? PAPER : color,
+      tool === "eraser" ? "erase" : penMode,
+    );
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -372,7 +466,13 @@ export default function DoodleyStudio() {
       context.putImageData(shapeBaseRef.current, 0, 0);
       drawRectangle(context, shapeStartRef.current, point);
     } else {
-      drawDitheredLine(context, lastPointRef.current, point, tool === "eraser" ? PAPER : color);
+      drawPixelLine(
+        context,
+        lastPointRef.current,
+        point,
+        tool === "eraser" ? PAPER : color,
+        tool === "eraser" ? "erase" : penMode,
+      );
     }
     lastPointRef.current = point;
   };
@@ -618,6 +718,16 @@ export default function DoodleyStudio() {
     downloadBlob(blob, `doodley-session-${new Date().toISOString().slice(0, 10)}.zip`);
   };
 
+  const selectTool = (nextTool: Tool) => {
+    if (nextTool === "pen") {
+      setTool("pen");
+      setShowPenOptions((isOpen) => (tool === "pen" ? !isOpen : true));
+      return;
+    }
+    setTool(nextTool);
+    setShowPenOptions(false);
+  };
+
   return (
     <main className="doodley-app">
       <header className="brand-console" aria-label="Doodley drawing studio">
@@ -738,23 +848,128 @@ export default function DoodleyStudio() {
                 type="button"
                 key={item.id}
                 className={`tool-button ${tool === item.id ? "is-active" : ""}`}
-                onClick={() => setTool(item.id)}
+                onClick={() => selectTool(item.id)}
                 aria-pressed={tool === item.id}
+                aria-expanded={item.id === "pen" ? showPenOptions : undefined}
+                aria-controls={item.id === "pen" ? "pen-options" : undefined}
                 title={`${item.label} (${item.shortcut})`}
               >
                 <span className="tool-icon" aria-hidden="true">{item.icon}</span>
                 <span>{item.label}</span>
                 <kbd>{item.shortcut}</kbd>
+                {item.id === "pen" && <small className="tool-mode-label">{penMode === "duotone" ? "DUO" : penMode.toUpperCase()}</small>}
               </button>
             ))}
             <div className="rail-speaker" aria-hidden="true" />
           </aside>
+
+          {showPenOptions && (
+            <section id="pen-options" className="pen-options-card" aria-label="Pen options">
+              <header className="pen-options-header">
+                <div>
+                  <span>TOOL 01</span>
+                  <h2>PEN DECK</h2>
+                </div>
+                <button type="button" onClick={() => setShowPenOptions(false)} aria-label="Close pen options">×</button>
+              </header>
+
+              <p className="pen-options-intro">Choose how the ink fills each hard-edged brush pixel.</p>
+
+              <div className="pen-mode-grid" role="radiogroup" aria-label="Pen mode">
+                {PEN_MODES.map((mode) => (
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={penMode === mode.id}
+                    key={mode.id}
+                    className={penMode === mode.id ? "is-selected" : ""}
+                    onClick={() => setPenMode(mode.id)}
+                  >
+                    <span className={`pen-mode-preview ${mode.id}`} style={penPreviewStyle} aria-hidden="true" />
+                    <strong>{mode.label}</strong>
+                    <small>{mode.description}</small>
+                  </button>
+                ))}
+              </div>
+
+              <div className="pen-options-section">
+                <div className="pen-section-heading">
+                  <span>PRIMARY INK</span>
+                  <output>{color.toUpperCase()}</output>
+                </div>
+                <div className="pen-color-row" aria-label="Primary pen color">
+                  {PALETTE.map((swatch) => (
+                    <button
+                      type="button"
+                      key={swatch}
+                      className={color === swatch ? "is-selected" : ""}
+                      style={{ backgroundColor: swatch }}
+                      onClick={() => setColor(swatch)}
+                      aria-label={`Use ${swatch} as the primary pen color`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {penMode === "duotone" && (
+                <div className="pen-options-section duo-section">
+                  <div className="pen-section-heading">
+                    <span>SECONDARY INK</span>
+                    <output>{secondaryColor.toUpperCase()}</output>
+                  </div>
+                  <div className="pen-color-row" aria-label="Secondary pen color">
+                    {PALETTE.map((swatch) => (
+                      <button
+                        type="button"
+                        key={swatch}
+                        className={secondaryColor === swatch ? "is-selected" : ""}
+                        style={{ backgroundColor: swatch }}
+                        onClick={() => setSecondaryColor(swatch)}
+                        aria-label={`Use ${swatch} as the secondary pen color`}
+                      />
+                    ))}
+                  </div>
+                  <div className="duotone-strip" style={penPreviewStyle}>
+                    <span>PRIMARY</span>
+                    <strong>{Math.round(density * 100)} / {100 - Math.round(density * 100)}</strong>
+                    <span>SECONDARY</span>
+                  </div>
+                </div>
+              )}
+
+              {penMode !== "solid" && (
+                <div className="pen-options-section texture-mix">
+                  <div className="pen-section-heading"><span>{penMode === "duotone" ? "COLOR MIX" : "INK COVERAGE"}</span></div>
+                  <div className="density-buttons" role="radiogroup" aria-label="Texture density">
+                    {[0.25, 0.5, 0.75].map((amount) => (
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={density === amount}
+                        key={amount}
+                        className={density === amount ? "is-selected" : ""}
+                        onClick={() => setDensity(amount)}
+                      >
+                        {amount * 100}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <footer className="pen-options-footer">
+                <span>{penMode === "duotone" ? "Every stroke pixel uses one of the two inks." : penMode === "solid" ? "No gaps. No smoothing. Pure pixel ink." : "Paper shows through the ordered screen tone."}</span>
+                <button type="button" className="pixel-button" onClick={() => setShowPenOptions(false)}>DONE</button>
+              </footer>
+            </section>
+          )}
 
           <div className="canvas-stage">
             <div className="canvas-status-row">
               <div>
                 <span className="eyebrow">PIXEL GRID</span>
                 <strong>{CANVAS_WIDTH} × {CANVAS_HEIGHT}</strong>
+                <small>{tool === "pen" ? `PEN · ${penModeLabel.toUpperCase()}` : tool.toUpperCase()}</small>
               </div>
               <div className="timer-readout" data-warning={secondsLeft <= 10}>
                 <span>TIME</span>
@@ -808,12 +1023,16 @@ export default function DoodleyStudio() {
               </label>
 
               <label className="compact-control">
-                <span>DITHER</span>
-                <select value={density} onChange={(event) => setDensity(Number(event.target.value))}>
-                  <option value="0.25">25%</option>
-                  <option value="0.5">50%</option>
-                  <option value="0.75">75%</option>
-                </select>
+                <span>{tool === "pen" && penMode === "solid" ? "INK FILL" : penMode === "duotone" ? "DUO MIX" : "DITHER"}</span>
+                {tool === "pen" && penMode === "solid" ? (
+                  <strong className="solid-ink-value">100%</strong>
+                ) : (
+                  <select value={density} onChange={(event) => setDensity(Number(event.target.value))}>
+                    <option value="0.25">25%</option>
+                    <option value="0.5">50%</option>
+                    <option value="0.75">75%</option>
+                  </select>
+                )}
               </label>
 
               <div className="palette-control" aria-label="Drawing colors">
