@@ -49,5 +49,8 @@ test("the drawing engine is an integer pixel and dither implementation", async (
   assert.match(source, /style === "duotone"/);
   assert.match(source, /usePrimary \? primaryColor : secondaryColor/);
   assert.match(source, /style === "dither"/);
+  assert.match(source, /type="range"/);
+  assert.match(source, /const MAX_BRUSH_SIZE = 20/);
+  assert.match(source, /centerShift = brushSize % 2 === 0 \? 0\.5 : 0/);
   assert.doesNotMatch(source, /lineTo\(|stroke\(\)/);
 });

@@ -13,6 +13,8 @@ import JSZip from "jszip";
 
 const CANVAS_WIDTH = 256;
 const CANVAS_HEIGHT = 192;
+const MIN_BRUSH_SIZE = 1;
+const MAX_BRUSH_SIZE = 20;
 const PAPER = "#fffdf4";
 const BAYER_4 = [
   [0, 8, 2, 10],
@@ -257,7 +259,11 @@ export default function DoodleyStudio() {
         if ([0.25, 0.5, 0.75].includes(parsedPen.density ?? 0)) {
           setDensity(parsedPen.density as number);
         }
-        if ([1, 3, 5, 7].includes(parsedPen.brushSize ?? 0)) {
+        if (
+          Number.isInteger(parsedPen.brushSize) &&
+          (parsedPen.brushSize as number) >= MIN_BRUSH_SIZE &&
+          (parsedPen.brushSize as number) <= MAX_BRUSH_SIZE
+        ) {
           setBrushSize(parsedPen.brushSize as number);
         }
       }
@@ -349,10 +355,16 @@ export default function DoodleyStudio() {
       nextColor: string,
       style: StampStyle = "dither",
     ) => {
-      const radius = Math.floor(brushSize / 2);
-      for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
-        for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
-          if (offsetX * offsetX + offsetY * offsetY <= radius * radius + 1) {
+      const radius = brushSize / 2;
+      const start = -Math.floor(brushSize / 2);
+      const end = start + brushSize - 1;
+      const centerShift = brushSize % 2 === 0 ? 0.5 : 0;
+
+      for (let offsetY = start; offsetY <= end; offsetY += 1) {
+        for (let offsetX = start; offsetX <= end; offsetX += 1) {
+          const distanceX = offsetX + centerShift;
+          const distanceY = offsetY + centerShift;
+          if (distanceX * distanceX + distanceY * distanceY <= radius * radius) {
             setStyledPixel(context, x + offsetX, y + offsetY, nextColor, style);
           }
         }
@@ -1012,15 +1024,48 @@ export default function DoodleyStudio() {
                 <span className="history-tick" aria-hidden="true">{historyTick > -1 ? "" : ""}</span>
               </div>
 
-              <label className="compact-control">
-                <span>SIZE</span>
-                <select value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))}>
-                  <option value="1">1 PX</option>
-                  <option value="3">3 PX</option>
-                  <option value="5">5 PX</option>
-                  <option value="7">7 PX</option>
-                </select>
-              </label>
+              <div
+                className="size-slider-control"
+                style={{ "--size-progress": `${((brushSize - MIN_BRUSH_SIZE) / (MAX_BRUSH_SIZE - MIN_BRUSH_SIZE)) * 100}%` } as CSSProperties}
+              >
+                <div className="size-slider-heading">
+                  <label htmlFor="brush-size">PEN SIZE</label>
+                  <output htmlFor="brush-size" aria-live="polite">{brushSize} PX</output>
+                </div>
+                <div className="size-slider-row">
+                  <button
+                    type="button"
+                    onClick={() => setBrushSize((size) => Math.max(MIN_BRUSH_SIZE, size - 1))}
+                    disabled={brushSize === MIN_BRUSH_SIZE}
+                    aria-label="Decrease pen size"
+                  >
+                    −
+                  </button>
+                  <input
+                    id="brush-size"
+                    type="range"
+                    min={MIN_BRUSH_SIZE}
+                    max={MAX_BRUSH_SIZE}
+                    step="1"
+                    value={brushSize}
+                    onChange={(event) => setBrushSize(Number(event.target.value))}
+                    aria-valuetext={`${brushSize} pixels`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setBrushSize((size) => Math.min(MAX_BRUSH_SIZE, size + 1))}
+                    disabled={brushSize === MAX_BRUSH_SIZE}
+                    aria-label="Increase pen size"
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="size-slider-scale" aria-hidden="true">
+                  <span>1</span>
+                  <span>10</span>
+                  <span>20</span>
+                </div>
+              </div>
 
               <label className="compact-control">
                 <span>{tool === "pen" && penMode === "solid" ? "INK FILL" : penMode === "duotone" ? "DUO MIX" : "DITHER"}</span>

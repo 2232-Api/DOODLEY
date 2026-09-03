@@ -8,6 +8,7 @@ reference on the left, then make a timed dithered pixel sketch on the right.
 - True 256 × 192 integer-pixel canvas
 - 4 × 4 Bayer dithering at 25%, 50%, and 75% density
 - Solid Pixel, Dither Ink, and full-coverage Duotone pen modes
+- Continuous 1–20 px brush-size slider with one-pixel step controls
 - Pixel eraser, bitmap text, rectangle, and color-picker tools
 - Mouse, touch, and stylus input
 - Reference uploads and Wikimedia Commons image search
