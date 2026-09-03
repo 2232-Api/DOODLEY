@@ -15,6 +15,8 @@ const CANVAS_WIDTH = 256;
 const CANVAS_HEIGHT = 192;
 const MIN_BRUSH_SIZE = 1;
 const MAX_BRUSH_SIZE = 20;
+const MIN_DUOTONE_PIXEL_SIZE = 1;
+const MAX_DUOTONE_PIXEL_SIZE = 6;
 const PAPER = "#fffdf4";
 const BAYER_4 = [
   [0, 8, 2, 10],
@@ -233,6 +235,7 @@ export default function DoodleyStudio() {
   const [showPenOptions, setShowPenOptions] = useState(false);
   const [brushSize, setBrushSize] = useState(3);
   const [density, setDensity] = useState(0.5);
+  const [duotonePixelSize, setDuotonePixelSize] = useState(1);
   const [color, setColor] = useState(PALETTE[0]);
   const [secondaryColor, setSecondaryColor] = useState(PALETTE[1]);
   const [textValue, setTextValue] = useState("DOODLE");
@@ -257,6 +260,7 @@ export default function DoodleyStudio() {
   const penPreviewStyle = {
     "--pen-primary": color,
     "--pen-secondary": secondaryColor,
+    "--duo-pixel-preview": `${duotonePixelSize * 2}px`,
   } as CSSProperties;
 
   const getContext = useCallback(() => {
@@ -318,6 +322,7 @@ export default function DoodleyStudio() {
           secondaryColor?: string;
           density?: number;
           brushSize?: number;
+          duotonePixelSize?: number;
         };
         if (PEN_MODES.some((mode) => mode.id === parsedPen.penMode)) {
           setPenMode(parsedPen.penMode as PenMode);
@@ -326,6 +331,13 @@ export default function DoodleyStudio() {
         if (parsedPen.secondaryColor) setSecondaryColor(parsedPen.secondaryColor);
         if ([0.25, 0.5, 0.75].includes(parsedPen.density ?? 0)) {
           setDensity(parsedPen.density as number);
+        }
+        if (
+          Number.isInteger(parsedPen.duotonePixelSize) &&
+          (parsedPen.duotonePixelSize as number) >= MIN_DUOTONE_PIXEL_SIZE &&
+          (parsedPen.duotonePixelSize as number) <= MAX_DUOTONE_PIXEL_SIZE
+        ) {
+          setDuotonePixelSize(parsedPen.duotonePixelSize as number);
         }
         if (
           Number.isInteger(parsedPen.brushSize) &&
@@ -352,12 +364,12 @@ export default function DoodleyStudio() {
     try {
       window.localStorage.setItem(
         "doodley-pen-v1",
-        JSON.stringify({ penMode, color, secondaryColor, density, brushSize }),
+        JSON.stringify({ penMode, color, secondaryColor, density, brushSize, duotonePixelSize }),
       );
     } catch {
       // Pen preferences are optional; drawing remains available without storage.
     }
-  }, [brushSize, color, density, penMode, secondaryColor]);
+  }, [brushSize, color, density, duotonePixelSize, penMode, secondaryColor]);
 
   const checkpoint = useCallback(() => {
     const context = getContext();
@@ -405,14 +417,16 @@ export default function DoodleyStudio() {
       }
 
       if (style === "duotone") {
-        const usePrimary = BAYER_4[y & 3][x & 3] < Math.round(density * 16);
+        const patternX = Math.floor(x / duotonePixelSize) & 3;
+        const patternY = Math.floor(y / duotonePixelSize) & 3;
+        const usePrimary = BAYER_4[patternY][patternX] < Math.round(density * 16);
         context.fillStyle = usePrimary ? primaryColor : secondaryColor;
       } else {
         context.fillStyle = primaryColor;
       }
       context.fillRect(x, y, 1, 1);
     },
-    [density, secondaryColor, setDitheredPixel],
+    [density, duotonePixelSize, secondaryColor, setDitheredPixel],
   );
 
   const stamp = useCallback(
@@ -1013,6 +1027,49 @@ export default function DoodleyStudio() {
                     <span>PRIMARY</span>
                     <strong>{Math.round(density * 100)} / {100 - Math.round(density * 100)}</strong>
                     <span>SECONDARY</span>
+                  </div>
+                  <div
+                    className="duo-pixel-control"
+                    style={{
+                      "--duo-progress": `${((duotonePixelSize - MIN_DUOTONE_PIXEL_SIZE) / (MAX_DUOTONE_PIXEL_SIZE - MIN_DUOTONE_PIXEL_SIZE)) * 100}%`,
+                    } as CSSProperties}
+                  >
+                    <div className="duo-pixel-heading">
+                      <label htmlFor="duotone-pixel-size">TEXTURE PIXELS</label>
+                      <output htmlFor="duotone-pixel-size" aria-live="polite">{duotonePixelSize} PX</output>
+                    </div>
+                    <div className="duo-pixel-slider">
+                      <button
+                        type="button"
+                        onClick={() => setDuotonePixelSize((size) => Math.max(MIN_DUOTONE_PIXEL_SIZE, size - 1))}
+                        disabled={duotonePixelSize === MIN_DUOTONE_PIXEL_SIZE}
+                        aria-label="Decrease duotone texture pixel size"
+                      >
+                        −
+                      </button>
+                      <input
+                        id="duotone-pixel-size"
+                        type="range"
+                        min={MIN_DUOTONE_PIXEL_SIZE}
+                        max={MAX_DUOTONE_PIXEL_SIZE}
+                        step="1"
+                        value={duotonePixelSize}
+                        onChange={(event) => setDuotonePixelSize(Number(event.target.value))}
+                        aria-valuetext={`${duotonePixelSize} pixel texture blocks`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setDuotonePixelSize((size) => Math.min(MAX_DUOTONE_PIXEL_SIZE, size + 1))}
+                        disabled={duotonePixelSize === MAX_DUOTONE_PIXEL_SIZE}
+                        aria-label="Increase duotone texture pixel size"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="duo-pixel-scale" aria-hidden="true">
+                      <span>FINE</span>
+                      <span>CHUNKY</span>
+                    </div>
                   </div>
                 </div>
               )}
