@@ -61,5 +61,8 @@ test("the drawing engine is an integer pixel and dither implementation", async (
   assert.match(source, /COLOR WHEEL/);
   assert.match(source, /label="PRIMARY"/);
   assert.match(source, /#00a6c8/);
+  assert.match(source, /const MAX_TEXT_PIXEL_SIZE = 4/);
+  assert.match(source, /STAMP PIXEL TEXT/);
+  assert.match(source, /cursorX \+ columnIndex \* textPixelSize/);
   assert.doesNotMatch(source, /lineTo\(|stroke\(\)/);
 });

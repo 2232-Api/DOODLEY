@@ -1238,7 +1238,7 @@ button:disabled {
 }
 
 .text-stamp-control {
-  min-width: 150px;
+  min-width: 210px;
 }
 
 .text-stamp-control input {
@@ -1250,6 +1250,47 @@ button:disabled {
   padding: 3px 5px;
   text-transform: uppercase;
   width: 100%;
+}
+
+.text-stamp-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.text-stamp-heading label,
+.text-stamp-heading output {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.text-stamp-heading output {
+  background: var(--ink);
+  color: white;
+  padding: 2px 4px;
+}
+
+.text-pixel-sizes {
+  display: grid;
+  gap: 3px;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 5px;
+}
+
+.text-pixel-sizes button {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 900;
+  min-height: 22px;
+  padding: 2px;
+}
+
+.text-pixel-sizes button.is-selected {
+  background: var(--blue);
+  color: white;
 }
 
 .session-controls {

@@ -11,7 +11,7 @@ reference on the left, then make a timed dithered pixel sketch on the right.
 - Adjustable 1–6 px Duotone texture grain with a live checker preview
 - Twelve quick colors plus full color-wheel pickers for both Duotone inks
 - Continuous 1–20 px brush-size slider with one-pixel step controls
-- Pixel eraser, bitmap text, rectangle, and color-picker tools
+- Pixel eraser, solid 5 × 7 bitmap text with adjustable pixel scale, rectangle, and color-picker tools
 - Mouse, touch, and stylus input
 - Reference uploads and Wikimedia Commons image search
 - Timed sprints, reference queues, pause, skip, and automatic progression

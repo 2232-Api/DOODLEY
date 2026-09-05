@@ -17,6 +17,8 @@ const MIN_BRUSH_SIZE = 1;
 const MAX_BRUSH_SIZE = 20;
 const MIN_DUOTONE_PIXEL_SIZE = 1;
 const MAX_DUOTONE_PIXEL_SIZE = 6;
+const MIN_TEXT_PIXEL_SIZE = 1;
+const MAX_TEXT_PIXEL_SIZE = 4;
 const PAPER = "#fffdf4";
 const BAYER_4 = [
   [0, 8, 2, 10],
@@ -278,6 +280,7 @@ export default function DoodleyStudio() {
   const [color, setColor] = useState(PALETTE[0]);
   const [secondaryColor, setSecondaryColor] = useState(PALETTE[1]);
   const [textValue, setTextValue] = useState("DOODLE");
+  const [textPixelSize, setTextPixelSize] = useState(2);
   const [references, setReferences] = useState<ReferenceImage[]>([DEFAULT_REFERENCE]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drawings, setDrawings] = useState<Record<string, string>>({});
@@ -362,6 +365,7 @@ export default function DoodleyStudio() {
           density?: number;
           brushSize?: number;
           duotonePixelSize?: number;
+          textPixelSize?: number;
         };
         if (PEN_MODES.some((mode) => mode.id === parsedPen.penMode)) {
           setPenMode(parsedPen.penMode as PenMode);
@@ -377,6 +381,13 @@ export default function DoodleyStudio() {
           (parsedPen.duotonePixelSize as number) <= MAX_DUOTONE_PIXEL_SIZE
         ) {
           setDuotonePixelSize(parsedPen.duotonePixelSize as number);
+        }
+        if (
+          Number.isInteger(parsedPen.textPixelSize) &&
+          (parsedPen.textPixelSize as number) >= MIN_TEXT_PIXEL_SIZE &&
+          (parsedPen.textPixelSize as number) <= MAX_TEXT_PIXEL_SIZE
+        ) {
+          setTextPixelSize(parsedPen.textPixelSize as number);
         }
         if (
           Number.isInteger(parsedPen.brushSize) &&
@@ -403,12 +414,12 @@ export default function DoodleyStudio() {
     try {
       window.localStorage.setItem(
         "doodley-pen-v1",
-        JSON.stringify({ penMode, color, secondaryColor, density, brushSize, duotonePixelSize }),
+        JSON.stringify({ penMode, color, secondaryColor, density, brushSize, duotonePixelSize, textPixelSize }),
       );
     } catch {
       // Pen preferences are optional; drawing remains available without storage.
     }
-  }, [brushSize, color, density, duotonePixelSize, penMode, secondaryColor]);
+  }, [brushSize, color, density, duotonePixelSize, penMode, secondaryColor, textPixelSize]);
 
   const checkpoint = useCallback(() => {
     const context = getContext();
@@ -529,25 +540,26 @@ export default function DoodleyStudio() {
 
   const drawBitmapText = useCallback(
     (context: CanvasRenderingContext2D, text: string, startX: number, startY: number) => {
-      const scale = 2;
       let cursorX = startX;
+      context.fillStyle = color;
       for (const rawCharacter of text.toUpperCase().slice(0, 18)) {
         const glyph = BITMAP_FONT[rawCharacter] ?? BITMAP_FONT["?"];
         glyph.forEach((row, rowIndex) => {
           row.split("").forEach((pixel, columnIndex) => {
             if (pixel !== "1") return;
-            for (let y = 0; y < scale; y += 1) {
-              for (let x = 0; x < scale; x += 1) {
-                setDitheredPixel(context, cursorX + columnIndex * scale + x, startY + rowIndex * scale + y, color);
-              }
-            }
+            context.fillRect(
+              cursorX + columnIndex * textPixelSize,
+              startY + rowIndex * textPixelSize,
+              textPixelSize,
+              textPixelSize,
+            );
           });
         });
-        cursorX += 6 * scale;
+        cursorX += 6 * textPixelSize;
         if (cursorX > CANVAS_WIDTH - 10) break;
       }
     },
-    [color, setDitheredPixel],
+    [color, textPixelSize],
   );
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1190,52 +1202,56 @@ export default function DoodleyStudio() {
                 <span className="history-tick" aria-hidden="true">{historyTick > -1 ? "" : ""}</span>
               </div>
 
-              <div
-                className="size-slider-control"
-                style={{ "--size-progress": `${((brushSize - MIN_BRUSH_SIZE) / (MAX_BRUSH_SIZE - MIN_BRUSH_SIZE)) * 100}%` } as CSSProperties}
-              >
-                <div className="size-slider-heading">
-                  <label htmlFor="brush-size">PEN SIZE</label>
-                  <output htmlFor="brush-size" aria-live="polite">{brushSize} PX</output>
+              {tool !== "text" && (
+                <div
+                  className="size-slider-control"
+                  style={{ "--size-progress": `${((brushSize - MIN_BRUSH_SIZE) / (MAX_BRUSH_SIZE - MIN_BRUSH_SIZE)) * 100}%` } as CSSProperties}
+                >
+                  <div className="size-slider-heading">
+                    <label htmlFor="brush-size">{tool === "pen" ? "PEN SIZE" : "TOOL SIZE"}</label>
+                    <output htmlFor="brush-size" aria-live="polite">{brushSize} PX</output>
+                  </div>
+                  <div className="size-slider-row">
+                    <button
+                      type="button"
+                      onClick={() => setBrushSize((size) => Math.max(MIN_BRUSH_SIZE, size - 1))}
+                      disabled={brushSize === MIN_BRUSH_SIZE}
+                      aria-label="Decrease pen size"
+                    >
+                      −
+                    </button>
+                    <input
+                      id="brush-size"
+                      type="range"
+                      min={MIN_BRUSH_SIZE}
+                      max={MAX_BRUSH_SIZE}
+                      step="1"
+                      value={brushSize}
+                      onChange={(event) => setBrushSize(Number(event.target.value))}
+                      aria-valuetext={`${brushSize} pixels`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setBrushSize((size) => Math.min(MAX_BRUSH_SIZE, size + 1))}
+                      disabled={brushSize === MAX_BRUSH_SIZE}
+                      aria-label="Increase pen size"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="size-slider-scale" aria-hidden="true">
+                    <span>1</span>
+                    <span>10</span>
+                    <span>20</span>
+                  </div>
                 </div>
-                <div className="size-slider-row">
-                  <button
-                    type="button"
-                    onClick={() => setBrushSize((size) => Math.max(MIN_BRUSH_SIZE, size - 1))}
-                    disabled={brushSize === MIN_BRUSH_SIZE}
-                    aria-label="Decrease pen size"
-                  >
-                    −
-                  </button>
-                  <input
-                    id="brush-size"
-                    type="range"
-                    min={MIN_BRUSH_SIZE}
-                    max={MAX_BRUSH_SIZE}
-                    step="1"
-                    value={brushSize}
-                    onChange={(event) => setBrushSize(Number(event.target.value))}
-                    aria-valuetext={`${brushSize} pixels`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setBrushSize((size) => Math.min(MAX_BRUSH_SIZE, size + 1))}
-                    disabled={brushSize === MAX_BRUSH_SIZE}
-                    aria-label="Increase pen size"
-                  >
-                    +
-                  </button>
-                </div>
-                <div className="size-slider-scale" aria-hidden="true">
-                  <span>1</span>
-                  <span>10</span>
-                  <span>20</span>
-                </div>
-              </div>
+              )}
 
               <label className="compact-control">
-                <span>{tool === "pen" && penMode === "solid" ? "INK FILL" : penMode === "duotone" ? "DUO MIX" : "DITHER"}</span>
-                {tool === "pen" && penMode === "solid" ? (
+                <span>{tool === "text" ? "TEXT GRID" : tool === "pen" && penMode === "solid" ? "INK FILL" : penMode === "duotone" ? "DUO MIX" : "DITHER"}</span>
+                {tool === "text" ? (
+                  <strong className="solid-ink-value">5×7</strong>
+                ) : tool === "pen" && penMode === "solid" ? (
                   <strong className="solid-ink-value">100%</strong>
                 ) : (
                   <select value={density} onChange={(event) => setDensity(Number(event.target.value))}>
@@ -1260,10 +1276,33 @@ export default function DoodleyStudio() {
               </div>
 
               {tool === "text" && (
-                <label className="text-stamp-control">
-                  <span>STAMP TEXT</span>
-                  <input value={textValue} maxLength={18} onChange={(event) => setTextValue(event.target.value)} />
-                </label>
+                <div className="text-stamp-control">
+                  <div className="text-stamp-heading">
+                    <label htmlFor="stamp-text">STAMP PIXEL TEXT</label>
+                    <output>{textPixelSize}× / 5×7</output>
+                  </div>
+                  <input
+                    id="stamp-text"
+                    value={textValue}
+                    maxLength={18}
+                    onChange={(event) => setTextValue(event.target.value)}
+                    placeholder="TYPE TEXT"
+                  />
+                  <div className="text-pixel-sizes" role="radiogroup" aria-label="Text pixel size">
+                    {[1, 2, 3, 4].map((size) => (
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={textPixelSize === size}
+                        className={textPixelSize === size ? "is-selected" : ""}
+                        key={size}
+                        onClick={() => setTextPixelSize(size)}
+                      >
+                        {size}×
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 
