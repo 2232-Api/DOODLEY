@@ -791,6 +791,80 @@ button:disabled {
   transform: scale(0.8);
 }
 
+.color-wheel-control {
+  align-items: center;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 30px minmax(0, 1fr) 38px;
+  margin-top: 8px;
+  padding: 5px 6px;
+}
+
+.color-wheel-control:focus-within {
+  outline: 3px solid #f0aa32;
+  outline-offset: 3px;
+}
+
+.color-wheel-icon {
+  background: conic-gradient(
+    #e05a3f,
+    #f0aa32,
+    #56a44f,
+    #00a6c8,
+    #214fb3,
+    #8a4da3,
+    #ec4d93,
+    #e05a3f
+  );
+  border: 2px solid var(--ink);
+  height: 28px;
+  image-rendering: pixelated;
+  width: 28px;
+}
+
+.color-wheel-copy strong,
+.color-wheel-copy small {
+  display: block;
+}
+
+.color-wheel-copy strong {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.color-wheel-copy small {
+  color: #66666d;
+  font-size: 6px;
+  margin-top: 2px;
+}
+
+.color-wheel-control input[type="color"] {
+  appearance: none;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+  height: 30px;
+  padding: 2px;
+  width: 38px;
+}
+
+.color-wheel-control input[type="color"]:focus-visible {
+  outline: 0;
+}
+
+.color-wheel-control input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-wheel-control input[type="color"]::-webkit-color-swatch,
+.color-wheel-control input[type="color"]::-moz-color-swatch {
+  border: 0;
+  border-radius: 0;
+}
+
 .duo-section {
   background: rgba(200, 207, 186, 0.4);
   border: 2px solid var(--ink);
@@ -1145,7 +1219,7 @@ button:disabled {
   align-content: center;
   display: grid;
   gap: 4px;
-  grid-template-columns: repeat(3, 22px);
+  grid-template-columns: repeat(6, 22px);
   padding: 3px;
 }
 

@@ -57,5 +57,9 @@ test("the drawing engine is an integer pixel and dither implementation", async (
   assert.match(source, /const MAX_DUOTONE_PIXEL_SIZE = 6/);
   assert.match(source, /Math\.floor\(x \/ duotonePixelSize\)/);
   assert.match(source, /id="duotone-pixel-size"/);
+  assert.match(source, /type="color"/);
+  assert.match(source, /COLOR WHEEL/);
+  assert.match(source, /label="PRIMARY"/);
+  assert.match(source, /#00a6c8/);
   assert.doesNotMatch(source, /lineTo\(|stroke\(\)/);
 });

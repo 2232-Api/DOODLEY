@@ -9,6 +9,7 @@ reference on the left, then make a timed dithered pixel sketch on the right.
 - 4 × 4 Bayer dithering at 25%, 50%, and 75% density
 - Solid Pixel, Dither Ink, and full-coverage Duotone pen modes
 - Adjustable 1–6 px Duotone texture grain with a live checker preview
+- Twelve quick colors plus full color-wheel pickers for both Duotone inks
 - Continuous 1–20 px brush-size slider with one-pixel step controls
 - Pixel eraser, bitmap text, rectangle, and color-picker tools
 - Mouse, touch, and stylus input

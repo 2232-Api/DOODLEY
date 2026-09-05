@@ -178,7 +178,20 @@ const PEN_MODES: Array<{ id: PenMode; label: string; description: string }> = [
   { id: "duotone", label: "Duotone", description: "Two-color woven texture" },
 ];
 
-const PALETTE = ["#214fb3", "#e05a3f", "#191a22", "#4f8f4c", "#8a4da3", "#f0aa32"];
+const PALETTE = [
+  "#214fb3",
+  "#e05a3f",
+  "#191a22",
+  "#4f8f4c",
+  "#8a4da3",
+  "#f0aa32",
+  "#00a6c8",
+  "#ec4d93",
+  "#7a352d",
+  "#f6d7a7",
+  "#6044d8",
+  "#73808c",
+];
 
 function stripHtml(value = "") {
   return value.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ").trim();
@@ -216,6 +229,32 @@ function PixelToolIcon({ tool }: { tool: Tool }) {
         <span className={cell === "1" ? "is-filled" : ""} key={index} />
       ))}
     </span>
+  );
+}
+
+function ColorWheelControl({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="color-wheel-control">
+      <span className="color-wheel-icon" aria-hidden="true" />
+      <span className="color-wheel-copy">
+        <strong>{label} COLOR WHEEL</strong>
+        <small>CHOOSE ANY COLOR</small>
+      </span>
+      <input
+        type="color"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label={`${label} custom color`}
+      />
+    </label>
   );
 }
 
@@ -1003,6 +1042,7 @@ export default function DoodleyStudio() {
                     />
                   ))}
                 </div>
+                <ColorWheelControl label="PRIMARY" value={color} onChange={setColor} />
               </div>
 
               {penMode === "duotone" && (
@@ -1023,6 +1063,7 @@ export default function DoodleyStudio() {
                       />
                     ))}
                   </div>
+                  <ColorWheelControl label="SECONDARY" value={secondaryColor} onChange={setSecondaryColor} />
                   <div className="duotone-strip" style={penPreviewStyle}>
                     <span>PRIMARY</span>
                     <strong>{Math.round(density * 100)} / {100 - Math.round(density * 100)}</strong>
